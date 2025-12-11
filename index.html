@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Adan Monster Vocab - English Learning</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome for UI Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Fredoka for that "Gamey" look -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Fredoka', sans-serif;
+            overflow: hidden; /* Prevent scrolling during drag & drop */
+            touch-action: none;
+        }
+        
+        /* Background Scenery */
+        .scenery-sky {
+            background: linear-gradient(to bottom, #4facfe 0%, #00f2fe 100%);
+        }
+        .scenery-hills {
+            background: #4ade80;
+            border-top: 8px solid #22c55e;
+            border-radius: 50% 50% 0 0 / 20% 20% 0 0;
+            transform: scaleX(1.5);
+        }
+
+        /* Custom Animations */
+        @keyframes popIn {
+            0% { transform: scale(0); opacity: 0; }
+            80% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+
+        .monster-popup {
+            animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .floating {
+            animation: float 3s ease-in-out infinite;
+        }
+
+        /* Game Elements */
+        .game-btn {
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        .game-btn:active {
+            transform: scale(0.95);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .category-card:hover {
+            transform: translateY(-5px);
+        }
+
+        /* Drag and Drop Specifics */
+        .draggable-item {
+            cursor: grab;
+            touch-action: none;
+        }
+        .draggable-item.dragging {
+            opacity: 0.5;
+            transform: scale(1.1);
+        }
+        .drop-zone {
+            transition: all 0.3s ease;
+        }
+        .drop-zone.drag-over {
+            background-color: rgba(255, 255, 255, 0.8);
+            transform: scale(1.05);
+            border: 4px dashed #fbbf24;
+        }
+
+        /* Glassmorphism for containers */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            border: 4px solid white;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+        }
+
+        /* Scrollbar styling */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.1); 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.5); 
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen scenery-sky relative flex flex-col items-center justify-center select-none">
+
+    <!-- Scenery Background Elements -->
+    <div class="absolute bottom-0 w-full h-1/3 scenery-hills z-0"></div>
+    <div class="absolute top-10 left-10 text-white/40 text-6xl opacity-50"><i class="fas fa-cloud"></i></div>
+    <div class="absolute top-20 right-20 text-white/40 text-5xl opacity-50"><i class="fas fa-cloud"></i></div>
+
+    <!-- Main Game Container -->
+    <div id="app-container" class="relative z-10 w-full max-w-lg h-full max-h-[850px] flex flex-col p-4">
+        
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-4 relative">
+             <!-- Teacher Button (Top Left) -->
+            <button onclick="showLeaderboard()" class="absolute left-0 top-2 bg-white/20 p-2 rounded-full text-white cursor-pointer hover:bg-white/40 transition z-50 text-xs" title="Teacher/Leaderboard">
+                <i class="fas fa-chalkboard-teacher"></i> Scores
+            </button>
+
+            <h1 class="text-4xl md:text-5xl font-bold text-white drop-shadow-md tracking-wide floating text-center w-full mt-2">
+                Monster <span class="text-yellow-300">Vocab</span>
+            </h1>
+            <div id="sound-toggle" class="absolute right-0 top-2 bg-white/20 p-2 rounded-full text-white cursor-pointer hover:bg-white/40 transition z-50">
+                <i class="fas fa-volume-up"></i>
+            </div>
+        </header>
+
+        <!-- Content Area (Dynamic) -->
+        <main id="game-screen" class="flex-1 w-full relative">
+            <!-- Content injected via JS -->
+            <div class="flex flex-col items-center justify-center h-full text-white font-bold text-xl gap-2">
+                <div class="animate-spin rounded-full h-10 w-10 border-t-4 border-b-4 border-white mb-2"></div>
+                <span>Loading Game...</span>
+            </div>
+        </main>
+
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        let dbAvailable = false;
+        let app, auth, db, appId;
+        let user = null;
+
+        // --- SAFE INITIALIZATION ---
+        // We use a try-catch block to prevent the game from crashing if DB config is missing
+        async function initSystem() {
+            try {
+                if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                    const firebaseConfig = JSON.parse(__firebase_config);
+                    app = initializeApp(firebaseConfig);
+                    auth = getAuth(app);
+                    db = getFirestore(app);
+                    appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                    dbAvailable = true;
+
+                    // Auth Flow
+                    onAuthStateChanged(auth, (u) => {
+                        user = u;
+                        if (user) {
+                            if(!window.gameStarted) {
+                                window.gameStarted = true;
+                                window.showHome();
+                            }
+                        }
+                    });
+
+                    // Try Custom Token first, then Anonymous
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+
+                } else {
+                    throw new Error("No config");
+                }
+            } catch (e) {
+                console.warn("Database not available. Running in OFFLINE mode.", e);
+                dbAvailable = false;
+                // Force start game in offline mode
+                setTimeout(() => {
+                    if(!window.gameStarted) {
+                        window.gameStarted = true;
+                        window.showHome();
+                    }
+                }, 1000);
+            }
+        }
+
+        initSystem();
+
+        // --- Database Functions ---
+
+        window.saveScoreToDB = async (studentName, score, category) => {
+            // Local Storage Fallback (Always save locally just in case)
+            try {
+                const localScores = JSON.parse(localStorage.getItem('monsterVocabScores') || '[]');
+                localScores.push({
+                    name: studentName,
+                    score: score,
+                    category: category,
+                    date: new Date().toLocaleDateString()
+                });
+                localStorage.setItem('monsterVocabScores', JSON.stringify(localScores));
+            } catch(e) { console.log("Local save error"); }
+
+            // Online Save
+            if (!dbAvailable || !user) return;
+            try {
+                const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'monster_scores');
+                await addDoc(colRef, {
+                    name: studentName,
+                    score: score,
+                    category: category,
+                    timestamp: serverTimestamp(),
+                    dateString: new Date().toLocaleDateString()
+                });
+                console.log("Score saved online!");
+            } catch (e) {
+                console.error("Error saving score online:", e);
+            }
+        };
+
+        window.fetchLeaderboardData = async () => {
+            let scores = [];
+
+            // 1. Try Fetching Online
+            if (dbAvailable && user) {
+                try {
+                    const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'monster_scores');
+                    const q = query(colRef); 
+                    const snapshot = await getDocs(q);
+                    scores = snapshot.docs.map(doc => doc.data());
+                } catch (e) {
+                    console.error("Error fetching online leaderboard:", e);
+                }
+            }
+
+            // 2. Fetch Local if Online failed or is empty, or just merge them? 
+            // For simplicity, if online is empty/off, show local.
+            if (scores.length === 0) {
+                try {
+                    const localScores = JSON.parse(localStorage.getItem('monsterVocabScores') || '[]');
+                    scores = localScores;
+                } catch(e) {}
+            }
+
+            // Sort logic
+            scores.sort((a, b) => b.score - a.score);
+            return scores.slice(0, 50);
+        };
+
+    </script>
+
+    <script>
+        // --- Game Data ---
+        const categories = {
+            animals: { 
+                name: "Animals", 
+                color: "bg-orange-500", 
+                border: "border-orange-500",
+                light: "bg-orange-100",
+                items: [
+                    { word: "Cat", emoji: "🐱" }, { word: "Dog", emoji: "🐶" }, 
+                    { word: "Lion", emoji: "🦁" }, { word: "Elephant", emoji: "🐘" }, 
+                    { word: "Bird", emoji: "🐦" }, { word: "Fish", emoji: "🐠" },
+                    { word: "Monkey", emoji: "🐵" }, { word: "Rabbit", emoji: "🐰" }, 
+                    { word: "Tiger", emoji: "🐯" }, { word: "Snake", emoji: "🐍" }
+                ]
+            },
+            school: { 
+                name: "School", 
+                color: "bg-blue-500", 
+                border: "border-blue-500",
+                light: "bg-blue-100",
+                items: [
+                    { word: "Book", emoji: "📕" }, { word: "Pen", emoji: "🖊️" }, 
+                    { word: "Pencil", emoji: "✏️" }, { word: "Bag", emoji: "🎒" }, 
+                    { word: "Ruler", emoji: "📏" }, { word: "Eraser", emoji: "🧼" }, 
+                    { word: "Desk", emoji: "🏫" }, { word: "Chair", emoji: "🪑" }, 
+                    { word: "Computer", emoji: "💻" }, { word: "Scissors", emoji: "✂️" }
+                ]
+            },
+            food: { 
+                name: "Food", 
+                color: "bg-red-500", 
+                border: "border-red-500",
+                light: "bg-red-100",
+                items: [
+                    { word: "Apple", emoji: "🍎" }, { word: "Banana", emoji: "🍌" }, 
+                    { word: "Burger", emoji: "🍔" }, { word: "Pizza", emoji: "🍕" }, 
+                    { word: "Ice Cream", emoji: "🍦" }, { word: "Cake", emoji: "🍰" }, 
+                    { word: "Milk", emoji: "🥛" }, { word: "Egg", emoji: "🥚" }, 
+                    { word: "Bread", emoji: "🍞" }, { word: "Chicken", emoji: "🍗" }
+                ]
+            },
+            jobs: { 
+                name: "Jobs", 
+                color: "bg-purple-500", 
+                border: "border-purple-500",
+                light: "bg-purple-100",
+                items: [
+                    { word: "Doctor", emoji: "👨‍⚕️" }, { word: "Teacher", emoji: "👩‍🏫" }, 
+                    { word: "Police", emoji: "👮" }, { word: "Chef", emoji: "👨‍🍳" }, 
+                    { word: "Farmer", emoji: "👨‍🌾" }, { word: "Artist", emoji: "🎨" }, 
+                    { word: "Pilot", emoji: "✈️" }, { word: "Singer", emoji: "🎤" }, 
+                    { word: "Firefighter", emoji: "🚒" }, { word: "Scientist", emoji: "🔬" }
+                ]
+            },
+            hobbies: { 
+                name: "Hobbies", 
+                color: "bg-pink-500", 
+                border: "border-pink-500",
+                light: "bg-pink-100",
+                items: [
+                    { word: "Football", emoji: "⚽" }, { word: "Basketball", emoji: "🏀" }, 
+                    { word: "Music", emoji: "🎸" }, { word: "Painting", emoji: "🖌️" }, 
+                    { word: "Gaming", emoji: "🎮" }, { word: "Cycling", emoji: "🚲" }, 
+                    { word: "Reading", emoji: "📖" }, { word: "Swimming", emoji: "🏊" }, 
+                    { word: "Dancing", emoji: "💃" }, { word: "Photography", emoji: "📷" }
+                ]
+            }
+        };
+
+        const monsters = [
+            `<svg viewBox="0 0 100 100" class="w-32 h-32 text-purple-500 fill-current"><path d="M50 20c-15 0-25 10-25 25 0 20 10 35 25 35s25-15 25-35c0-15-10-25-25-25zm-8 25a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm16 0a3 3 0 1 1 0 6 3 3 0 0 1 0-6z" /></svg>`,
+            `<svg viewBox="0 0 100 100" class="w-32 h-32 text-green-500 fill-current"><rect x="25" y="25" width="50" height="50" rx="10" /><circle cx="40" cy="45" r="5" fill="white"/><circle cx="60" cy="45" r="5" fill="white"/><path d="M35 65 q15 10 30 0" stroke="white" stroke-width="3" fill="none"/></svg>`,
+            `<svg viewBox="0 0 100 100" class="w-32 h-32 text-orange-500 fill-current"><circle cx="50" cy="50" r="30" /><circle cx="40" cy="45" r="8" fill="white"/><circle cx="40" cy="45" r="3" fill="black"/><circle cx="60" cy="45" r="8" fill="white"/><circle cx="60" cy="45" r="3" fill="black"/><path d="M40 65 h20" stroke="white" stroke-width="3" stroke-linecap="round"/></svg>`
+        ];
+
+        let currentState = {
+            studentName: '',
+            category: 'animals',
+            questions: [],
+            currentQuestionIndex: 0,
+            score: 0,
+            correctCount: 0
+        };
+
+        const appContainer = document.getElementById('game-screen');
+        const synth = window.speechSynthesis;
+
+        // --- Utility Functions ---
+
+        function playAudio(text) {
+            synth.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'en-US';
+            utterance.rate = 0.9; 
+            utterance.pitch = 1.1; 
+            synth.speak(utterance);
+        }
+
+        function shuffle(array) {
+            return array.sort(() => Math.random() - 0.5);
+        }
+
+        function getRandomMonster() {
+            return monsters[Math.floor(Math.random() * monsters.length)];
+        }
+
+        // --- Screen Renderers ---
+
+        window.showHome = function() {
+            appContainer.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full space-y-4 animate-fade-in">
+                    <div class="glass-panel p-6 rounded-3xl w-full flex flex-col gap-3">
+                        
+                        <div class="text-center mb-2">
+                            <label class="block text-gray-500 text-sm font-bold mb-1">YOUR NAME:</label>
+                            <input type="text" id="studentNameInput" 
+                                value="${currentState.studentName}"
+                                placeholder="Type name here..." 
+                                class="w-full p-3 rounded-xl border-4 border-gray-200 text-center text-xl font-bold text-gray-700 focus:border-pink-500 outline-none transition">
+                        </div>
+
+                        <button onclick="startGameCheck()" class="game-btn bg-pink-500 hover:bg-pink-600 text-white text-xl font-bold py-3 rounded-2xl shadow-lg border-b-4 border-pink-700">
+                            START GAME
+                        </button>
+                        <button onclick="showCategories()" class="game-btn bg-purple-500 hover:bg-purple-600 text-white text-xl font-bold py-3 rounded-2xl shadow-lg border-b-4 border-purple-700">
+                            CHOOSE TOPIC
+                        </button>
+                        <button onclick="showReview()" class="game-btn bg-blue-400 hover:bg-blue-500 text-white text-xl font-bold py-3 rounded-2xl shadow-lg border-b-4 border-blue-600">
+                            REVIEW WORDS
+                        </button>
+                    </div>
+                    <div class="text-white text-lg font-semibold bg-black/20 px-4 py-2 rounded-full">
+                        Category: <span class="text-yellow-300 uppercase">${categories[currentState.category].name}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        window.showCategories = function() {
+            let catsHTML = '';
+            for (const [key, val] of Object.entries(categories)) {
+                catsHTML += `
+                    <button onclick="selectCategory('${key}')" class="category-card w-full text-left p-4 rounded-xl shadow-md ${val.color} border-2 border-white text-white font-bold text-xl flex items-center justify-between transition">
+                        <span>${val.name}</span>
+                        <span class="text-3xl">${val.items[0].emoji}</span>
+                    </button>
+                `;
+            }
+
+            appContainer.innerHTML = `
+                <div class="h-full flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-white text-2xl font-bold">Choose Topic</h2>
+                        <button onclick="showHome()" class="bg-white text-blue-500 px-3 py-1 rounded-lg font-bold shadow"><i class="fas fa-home"></i></button>
+                    </div>
+                    <div class="grid gap-4 overflow-y-auto pb-4 custom-scrollbar">
+                        ${catsHTML}
+                    </div>
+                </div>
+            `;
+        }
+
+        window.selectCategory = function(catKey) {
+            currentState.category = catKey;
+            playAudio(categories[catKey].name);
+            showHome();
+        }
+
+        window.showReview = function() {
+            const cat = categories[currentState.category];
+            let itemsHTML = cat.items.map(item => `
+                <div class="bg-white p-3 rounded-xl shadow-md flex items-center justify-between border-b-4 ${cat.border}">
+                    <div class="flex items-center gap-4">
+                        <span class="text-4xl">${item.emoji}</span>
+                        <span class="text-xl font-bold text-gray-700">${item.word}</span>
+                    </div>
+                    <button onclick="playAudio('${item.word}')" class="bg-yellow-400 hover:bg-yellow-500 text-white w-10 h-10 rounded-full flex items-center justify-center shadow">
+                        <i class="fas fa-volume-up"></i>
+                    </button>
+                </div>
+            `).join('');
+
+            appContainer.innerHTML = `
+                <div class="h-full flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-white text-2xl font-bold">Review: ${cat.name}</h2>
+                        <button onclick="showHome()" class="bg-white text-blue-500 px-3 py-1 rounded-lg font-bold shadow"><i class="fas fa-home"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto space-y-3 pb-4 pr-1">
+                        ${itemsHTML}
+                    </div>
+                </div>
+            `;
+        }
+
+        window.showLeaderboard = async function() {
+            appContainer.innerHTML = `
+                <div class="flex items-center justify-center h-full text-white">
+                    <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-white"></div>
+                </div>
+            `;
+
+            const scores = await window.fetchLeaderboardData();
+
+            let rows = scores.length > 0 ? scores.map((s, i) => `
+                <div class="bg-white/90 p-3 rounded-lg flex justify-between items-center text-gray-800">
+                    <div class="flex items-center gap-3">
+                        <span class="font-bold text-pink-500 w-6 text-center">${i+1}.</span>
+                        <div>
+                            <div class="font-bold leading-tight">${s.name || 'Anonymous'}</div>
+                            <div class="text-xs text-gray-500">${s.dateString || '-'} • ${s.category}</div>
+                        </div>
+                    </div>
+                    <div class="font-bold text-xl text-green-600">${s.score}</div>
+                </div>
+            `).join('') : '<div class="text-center text-white italic">No scores yet. Be the first!</div>';
+
+            appContainer.innerHTML = `
+                <div class="h-full flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-white text-2xl font-bold"><i class="fas fa-trophy text-yellow-300"></i> Scores</h2>
+                        <button onclick="showHome()" class="bg-white text-blue-500 px-3 py-1 rounded-lg font-bold shadow"><i class="fas fa-home"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto space-y-2 pb-4 pr-1 custom-scrollbar">
+                        ${rows}
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- Game Logic ---
+
+        window.startGameCheck = function() {
+            const nameInput = document.getElementById('studentNameInput');
+            if (nameInput && nameInput.value.trim() !== '') {
+                currentState.studentName = nameInput.value.trim();
+                startGameFlow();
+            } else {
+                nameInput.classList.add('ring-4', 'ring-red-400');
+                setTimeout(() => nameInput.classList.remove('ring-4', 'ring-red-400'), 500);
+                playAudio("Please type your name");
+            }
+        }
+
+        window.startGameFlow = function() {
+            currentState.score = 0;
+            currentState.correctCount = 0;
+            currentState.currentQuestionIndex = 0;
+            currentState.questions = generateQuestions();
+            playAudio(`Let's play, ${currentState.studentName}!`);
+            renderQuestion();
+        }
+
+        function generateQuestions() {
+            const catItems = categories[currentState.category].items;
+            const qs = [];
+
+            // 1-4: Listen -> Choose Picture
+            for (let i = 0; i < 4; i++) {
+                const target = catItems[Math.floor(Math.random() * catItems.length)];
+                const others = catItems.filter(x => x.word !== target.word);
+                const distractors = shuffle(others).slice(0, 3);
+                const options = shuffle([target, ...distractors]);
+                
+                qs.push({
+                    type: 'listening',
+                    target: target,
+                    options: options,
+                    instruction: "Listen and choose the correct picture"
+                });
+            }
+
+            // 5-7: Picture -> Choose Word
+            for (let i = 0; i < 3; i++) {
+                const target = catItems[Math.floor(Math.random() * catItems.length)];
+                const others = catItems.filter(x => x.word !== target.word);
+                const distractors = shuffle(others).slice(0, 2);
+                const options = shuffle([target, ...distractors]);
+
+                qs.push({
+                    type: 'reading',
+                    target: target,
+                    options: options,
+                    instruction: "Look and choose the correct word"
+                });
+            }
+
+            // 8-10: Drag and Drop
+            for (let i = 0; i < 3; i++) {
+                const target = catItems[Math.floor(Math.random() * catItems.length)];
+                const others = catItems.filter(x => x.word !== target.word);
+                const distractor = shuffle(others)[0]; 
+                const images = shuffle([target, distractor]);
+                
+                qs.push({
+                    type: 'drag',
+                    target: target,
+                    options: images, 
+                    instruction: "Drag the word to the correct picture"
+                });
+            }
+
+            return qs;
+        }
+
+        function renderQuestion() {
+            const q = currentState.questions[currentState.currentQuestionIndex];
+            const catData = categories[currentState.category];
+            const progress = currentState.currentQuestionIndex + 1;
+
+            let contentHTML = '';
+
+            if (q.type === 'listening') {
+                contentHTML = `
+                    <div class="flex flex-col items-center h-full justify-between py-4">
+                        <div class="text-center bg-white/90 p-4 rounded-2xl w-full mb-4 shadow-lg">
+                            <p class="text-gray-600 text-sm mb-2"><i class="fas fa-headphones"></i> ${q.instruction}</p>
+                            <button onclick="playAudio('${q.target.word}')" class="animate-bounce bg-yellow-400 hover:bg-yellow-500 text-white w-20 h-20 rounded-full text-3xl shadow-lg border-b-4 border-yellow-600 transition">
+                                <i class="fas fa-volume-up"></i>
+                            </button>
+                            <p class="mt-2 text-xs text-gray-400">(Tap to listen)</p>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 w-full">
+                            ${q.options.map(opt => `
+                                <button onclick="checkAnswer('${opt.word}', '${q.target.word}')" class="game-btn bg-white aspect-square rounded-2xl shadow-md border-b-4 ${catData.border} flex items-center justify-center text-6xl hover:bg-gray-50">
+                                    ${opt.emoji}
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                setTimeout(() => playAudio(q.target.word), 500);
+            } else if (q.type === 'reading') {
+                contentHTML = `
+                    <div class="flex flex-col items-center h-full justify-center py-4 gap-6">
+                        <div class="bg-white p-4 rounded-3xl shadow-xl w-64 h-64 flex items-center justify-center border-8 ${catData.border}">
+                            <span class="text-9xl filter drop-shadow-md">${q.target.emoji}</span>
+                        </div>
+                        <p class="text-white font-bold text-shadow text-lg">${q.instruction}</p>
+                        <div class="grid grid-cols-1 gap-3 w-full max-w-xs">
+                            ${q.options.map(opt => `
+                                <button onclick="checkAnswer('${opt.word}', '${q.target.word}')" class="game-btn bg-white text-gray-800 font-bold text-2xl py-3 rounded-xl shadow-md border-b-4 border-gray-300 hover:bg-gray-100">
+                                    ${opt.word}
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            } else if (q.type === 'drag') {
+                contentHTML = `
+                    <div class="flex flex-col items-center h-full justify-between py-4">
+                        <p class="text-white text-center font-bold mb-4">${q.instruction}</p>
+                        <div class="grid grid-cols-2 gap-6 w-full mb-8">
+                            ${q.options.map((opt, idx) => `
+                                <div id="zone-${idx}" 
+                                     class="drop-zone bg-white/40 border-4 border-white border-dashed rounded-2xl aspect-square flex items-center justify-center text-6xl relative"
+                                     data-word="${opt.word}"
+                                     onclick="handleDropClick(this, '${q.target.word}')"
+                                     ondrop="handleDrop(event, this, '${q.target.word}')" 
+                                     ondragover="allowDrop(event)">
+                                    ${opt.emoji}
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div id="drag-source" 
+                             draggable="true" 
+                             ondragstart="drag(event)" 
+                             onclick="selectForDrag(this)"
+                             class="draggable-item bg-white px-8 py-4 rounded-xl shadow-xl border-b-4 ${catData.border} cursor-grab animate-pulse">
+                            <span class="text-3xl font-bold text-gray-800 pointer-events-none">${q.target.word}</span>
+                        </div>
+                        <p class="text-white/80 text-sm mt-2">Drag word OR Tap word then tap picture</p>
+                    </div>
+                `;
+            }
+
+            appContainer.innerHTML = `
+                <div class="h-full flex flex-col animate-fade-in">
+                    <div class="w-full bg-black/20 rounded-full h-4 mb-4 overflow-hidden border border-white/30">
+                        <div class="bg-yellow-400 h-full transition-all duration-500" style="width: ${(progress/10)*100}%"></div>
+                    </div>
+                    <div class="flex justify-between text-white font-bold text-sm mb-2">
+                        <span>Level ${progress}/10</span>
+                        <span>Score: ${currentState.score}</span>
+                    </div>
+                    <div class="flex-1 relative">
+                        ${contentHTML}
+                    </div>
+                </div>
+            `;
+        }
+
+        let selectedDragItem = null;
+
+        window.allowDrop = function(ev) {
+            ev.preventDefault();
+            ev.currentTarget.classList.add('drag-over');
+        }
+        
+        window.drag = function(ev) {
+            ev.dataTransfer.setData("text", ev.target.innerText);
+            ev.target.classList.add('opacity-50');
+        }
+
+        window.handleDrop = function(ev, el, targetWord) {
+            ev.preventDefault();
+            el.classList.remove('drag-over');
+            const zoneWord = el.getAttribute('data-word');
+            checkAnswer(zoneWord, targetWord);
+        }
+
+        window.selectForDrag = function(el) {
+            if (selectedDragItem) {
+                selectedDragItem.classList.remove('ring-4', 'ring-yellow-300');
+            }
+            selectedDragItem = el;
+            el.classList.add('ring-4', 'ring-yellow-300');
+            playAudio(el.innerText);
+        }
+
+        window.handleDropClick = function(el, targetWord) {
+            if (!selectedDragItem) return;
+            const zoneWord = el.getAttribute('data-word');
+            checkAnswer(zoneWord, targetWord);
+        }
+
+        window.checkAnswer = function(selected, correct) {
+            const isCorrect = selected === correct;
+            
+            if (isCorrect) {
+                currentState.score += 10;
+                currentState.correctCount++;
+                showFeedback(true);
+                playAudio("Great job!");
+            } else {
+                showFeedback(false);
+                playAudio("Try again!");
+            }
+        }
+
+        function showFeedback(isCorrect) {
+            const overlay = document.createElement('div');
+            overlay.className = "absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm";
+            const monster = getRandomMonster();
+            
+            overlay.innerHTML = `
+                <div class="monster-popup bg-white p-8 rounded-3xl text-center shadow-2xl border-8 ${isCorrect ? 'border-green-400' : 'border-red-400'} max-w-xs mx-4">
+                    <div class="mb-4 flex justify-center">
+                        ${isCorrect ? monster : '<i class="fas fa-times-circle text-6xl text-red-500"></i>'}
+                    </div>
+                    <h2 class="text-3xl font-bold mb-2 ${isCorrect ? 'text-green-600' : 'text-red-600'}">
+                        ${isCorrect ? 'Awesome!' : 'Oops!'}
+                    </h2>
+                    <p class="text-gray-500 text-lg font-semibold">${isCorrect ? '+10 Points' : 'Don\'t give up!'}</p>
+                </div>
+            `;
+
+            appContainer.appendChild(overlay);
+
+            setTimeout(() => {
+                overlay.remove();
+                if (isCorrect || !isCorrect) { 
+                    nextQuestion();
+                }
+            }, 1500);
+        }
+
+        function nextQuestion() {
+            currentState.currentQuestionIndex++;
+            if (currentState.currentQuestionIndex < 10) {
+                renderQuestion();
+            } else {
+                showResult();
+            }
+        }
+
+        function showResult() {
+            const percentage = (currentState.correctCount / 10) * 100;
+            let message = "Good effort!";
+            let stars = 1;
+            
+            if (percentage === 100) { message = "Perfect!"; stars = 3; }
+            else if (percentage >= 70) { message = "Well Done!"; stars = 2; }
+
+            // SAVE TO DB (Will auto-fallback to local if offline)
+            window.saveScoreToDB(currentState.studentName, currentState.score, currentState.category);
+
+            let starsHTML = '';
+            for(let i=0; i<3; i++) {
+                starsHTML += `<i class="fas fa-star text-4xl ${i < stars ? 'text-yellow-400' : 'text-gray-300'} drop-shadow-md"></i>`;
+            }
+
+            appContainer.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full space-y-6 animate-fade-in">
+                    <div class="glass-panel p-8 rounded-3xl w-full text-center">
+                        <h2 class="text-3xl font-bold text-gray-700 mb-2">Level Complete!</h2>
+                        <div class="flex justify-center gap-2 mb-4">
+                            ${starsHTML}
+                        </div>
+                        <div class="text-6xl font-bold text-pink-500 mb-2">${currentState.score}</div>
+                        <p class="text-gray-500 font-bold uppercase tracking-widest mb-6">Total Score</p>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <button onclick="startGameFlow()" class="game-btn bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl shadow-md border-b-4 border-green-700">
+                                <i class="fas fa-redo"></i> Play Again
+                            </button>
+                            <button onclick="showLeaderboard()" class="game-btn bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-xl shadow-md border-b-4 border-blue-700">
+                                <i class="fas fa-list"></i> Leaderboard
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            playAudio(message);
+        }
+
+    </script>
+</body>
+</html>
